@@ -1,6 +1,5 @@
 /**
- * Agent class that uses the agent-loop directly.
- * No transport abstraction - calls streamSimple via the loop.
+ * Agent class powered by Effect-TS for type-safe error handling and composability.
  */
 
 import {
@@ -12,11 +11,21 @@ import {
 	type TextContent,
 	type ThinkingBudgets,
 } from "@mariozechner/pi-ai";
-import { agentLoop, agentLoopContinue } from "./agent-loop.js";
+import { Effect, Layer } from "effect";
+import { runAgentLoop } from "./effect/loop.js";
+import {
+	makeApiKeyService,
+	makeEventEmitter,
+	makeFollowUpQueue,
+	makeMessageTransformer,
+	makeSessionConfig,
+	makeSteeringQueue,
+	makeStreamService,
+	makeToolExecutor,
+} from "./effect/services.js";
 import type {
 	AgentContext,
 	AgentEvent,
-	AgentLoopConfig,
 	AgentMessage,
 	AgentState,
 	AgentTool,
@@ -376,7 +385,7 @@ export class Agent {
 	}
 
 	/**
-	 * Run the agent loop.
+	 * Run the agent loop using Effect-TS.
 	 * If messages are provided, starts a new conversation turn with those messages.
 	 * Otherwise, continues from existing context.
 	 */
@@ -395,103 +404,55 @@ export class Agent {
 
 		const reasoning = this._state.thinkingLevel === "off" ? undefined : this._state.thinkingLevel;
 
-		const context: AgentContext = {
-			systemPrompt: this._state.systemPrompt,
-			messages: this._state.messages.slice(),
-			tools: this._state.tools,
-		};
-
-		let skipInitialSteeringPoll = options?.skipInitialSteeringPoll === true;
-
-		const config: AgentLoopConfig = {
-			model,
-			reasoning,
-			sessionId: this._sessionId,
-			thinkingBudgets: this._thinkingBudgets,
-			maxRetryDelayMs: this._maxRetryDelayMs,
-			convertToLlm: this.convertToLlm,
-			transformContext: this.transformContext,
-			getApiKey: this.getApiKey,
-			getSteeringMessages: async () => {
-				if (skipInitialSteeringPoll) {
-					skipInitialSteeringPoll = false;
-					return [];
-				}
-				return this.dequeueSteeringMessages();
-			},
-			getFollowUpMessages: async () => this.dequeueFollowUpMessages(),
-		};
-
-		let partial: AgentMessage | null = null;
-
 		try {
-			const stream = messages
-				? agentLoop(messages, context, config, this.abortController.signal, this.streamFn)
-				: agentLoopContinue(context, config, this.abortController.signal, this.streamFn);
-
-			for await (const event of stream) {
-				// Update internal state based on events
-				switch (event.type) {
-					case "message_start":
-						partial = event.message;
-						this._state.streamMessage = event.message;
-						break;
-
-					case "message_update":
-						partial = event.message;
-						this._state.streamMessage = event.message;
-						break;
-
-					case "message_end":
-						partial = null;
-						this._state.streamMessage = null;
-						this.appendMessage(event.message);
-						break;
-
-					case "tool_execution_start": {
-						const s = new Set(this._state.pendingToolCalls);
-						s.add(event.toolCallId);
-						this._state.pendingToolCalls = s;
-						break;
+			// Build Effect runtime with all services
+			const layer = Layer.mergeAll(
+				makeStreamService(this.streamFn),
+				makeApiKeyService(this.getApiKey),
+				makeMessageTransformer(this.convertToLlm, this.transformContext),
+				makeToolExecutor(),
+				makeEventEmitter((event) => {
+					this._handleEvent(event);
+				}),
+				makeSteeringQueue(() => {
+					if (options?.skipInitialSteeringPoll) {
+						options.skipInitialSteeringPoll = false;
+						return [];
 					}
+					return this.dequeueSteeringMessages();
+				}),
+				makeFollowUpQueue(() => this.dequeueFollowUpMessages()),
+				makeSessionConfig({
+					sessionId: this._sessionId,
+					thinkingBudgets: this._thinkingBudgets,
+					maxRetryDelayMs: this._maxRetryDelayMs,
+				}),
+			);
 
-					case "tool_execution_end": {
-						const s = new Set(this._state.pendingToolCalls);
-						s.delete(event.toolCallId);
-						this._state.pendingToolCalls = s;
-						break;
-					}
+			// Build context for Effect loop
+			const context = {
+				...({
+					systemPrompt: this._state.systemPrompt,
+					messages: this._state.messages.slice(),
+					tools: this._state.tools,
+				} as AgentContext),
+				model,
+			};
 
-					case "turn_end":
-						if (event.message.role === "assistant" && (event.message as any).errorMessage) {
-							this._state.error = (event.message as any).errorMessage;
-						}
-						break;
+			const prompts = messages ?? [];
 
-					case "agent_end":
-						this._state.isStreaming = false;
-						this._state.streamMessage = null;
-						break;
-				}
+			// Run the Effect-based loop
+			const program = runAgentLoop(context, prompts, {
+				signal: this.abortController.signal,
+				reasoning: reasoning as any,
+			});
 
-				// Emit to listeners
-				this.emit(event);
-			}
+			const newMessages = await Effect.runPromise(program.pipe(Effect.provide(layer)));
 
-			// Handle any remaining partial message
-			if (partial && partial.role === "assistant" && partial.content.length > 0) {
-				const onlyEmpty = !partial.content.some(
-					(c) =>
-						(c.type === "thinking" && c.thinking.trim().length > 0) ||
-						(c.type === "text" && c.text.trim().length > 0) ||
-						(c.type === "toolCall" && c.name.trim().length > 0),
-				);
-				if (!onlyEmpty) {
-					this.appendMessage(partial);
-				} else {
-					if (this.abortController?.signal.aborted) {
-						throw new Error("Request was aborted");
-					}
+			// Update state with new messages
+			for (const msg of newMessages) {
+				if (!this._state.messages.includes(msg)) {
+					this.appendMessage(msg);
 				}
 			}
 		} catch (err: any) {
@@ -526,6 +487,50 @@ export class Agent {
 			this.runningPrompt = undefined;
 			this.resolveRunningPrompt = undefined;
 		}
+	}
+
+	private _handleEvent(event: AgentEvent) {
+		switch (event.type) {
+			case "message_start":
+				this._state.streamMessage = event.message;
+				break;
+
+			case "message_update":
+				this._state.streamMessage = event.message;
+				break;
+
+			case "message_end":
+				this._state.streamMessage = null;
+				this.appendMessage(event.message);
+				break;
+
+			case "tool_execution_start": {
+				const s = new Set(this._state.pendingToolCalls);
+				s.add(event.toolCallId);
+				this._state.pendingToolCalls = s;
+				break;
+			}
+
+			case "tool_execution_end": {
+				const s = new Set(this._state.pendingToolCalls);
+				s.delete(event.toolCallId);
+				this._state.pendingToolCalls = s;
+				break;
+			}
+
+			case "turn_end":
+				if (event.message.role === "assistant" && (event.message as any).errorMessage) {
+					this._state.error = (event.message as any).errorMessage;
+				}
+				break;
+
+			case "agent_end":
+				this._state.isStreaming = false;
+				this._state.streamMessage = null;
+				break;
+		}
+
+		this.emit(event);
 	}
 
 	private emit(e: AgentEvent) {

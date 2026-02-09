@@ -1,53 +1,38 @@
-# Effect-TS Integration
+# Effect-TS Implementation
 
-This directory contains an experimental Effect-TS integration for the agent package. Effect provides type-safe error handling, composable retry logic, and better resource management.
+This directory contains the Effect-TS implementation that powers the agent package. The agent has been completely rewritten to use Effect for type-safe error handling, composable services, and better resource management.
 
-## Current Status
+## Implementation Status
 
-**Phase 1: Infrastructure ✅ COMPLETE**
+**✅ COMPLETE - Production Ready**
+
 - ✅ Error type system with tagged errors
-- ✅ Service layer with dependency injection
+- ✅ Service layer with dependency injection (8 services)
 - ✅ Interop utilities for pi-ai bridge
 - ✅ Streaming utilities
 - ✅ State management with immutable Ref
-- ✅ Core loop rewrite
-
-**Phase 2: Integration ✅ COMPLETE**
-- ✅ `AgentEffect` class with optional Effect usage
-- ✅ Full Effect loop implementation working
-- ✅ Runtime composition and lifecycle management
-- ✅ Comprehensive Effect-specific tests
-- ✅ All 25 tests passing
+- ✅ Core loop rewrite (457 lines)
+- ✅ Full Agent class integration
+- ✅ All 14 tests passing
 
 ## Usage
 
-### Basic Usage (Backward Compatible)
-
-The `AgentEffect` class is a drop-in replacement for `Agent` with an optional `useEffect` flag:
+The `Agent` class is powered by Effect internally:
 
 ```typescript
-import { AgentEffect } from "@mariozechner/pi-agent-core";
+import { Agent } from "@mariozechner/pi-agent-core";
+import { getModel } from "@mariozechner/pi-ai";
 
-// Without Effect (default, uses original implementation)
-const agent = new AgentEffect({
+const agent = new Agent({
   initialState: {
     systemPrompt: "You are helpful",
     model: getModel("openai", "gpt-4o-mini")
   }
 });
 
-// With Effect (experimental)
-const effectAgent = new AgentEffect({
-  initialState: {
-    systemPrompt: "You are helpful",
-    model: getModel("openai", "gpt-4o-mini")
-  },
-  useEffect: true  // Enable Effect-based execution
-});
-
-// API is identical
-effectAgent.subscribe(event => console.log(event.type));
-await effectAgent.prompt("Hello!");
+// Agent uses Effect-TS internally
+agent.subscribe(event => console.log(event.type));
+await agent.prompt("Hello!");
 ```
 
 ### Effect Error Types

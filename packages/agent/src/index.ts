@@ -1,9 +1,6 @@
-// Core Agent
+// Core Agent (powered by Effect-TS)
 export * from "./agent.js";
-// Loop functions
-export * from "./agent-loop.js";
-export * from "./effect/agent-effect.js";
-// Effect-TS integration (experimental)
+// Effect error types
 export * from "./effect/errors.js";
 // Proxy utilities
 export * from "./proxy.js";

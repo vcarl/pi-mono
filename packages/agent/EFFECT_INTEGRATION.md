@@ -4,11 +4,12 @@ This document summarizes the Effect-TS integration work completed for the agent 
 
 ## Overview
 
-The agent package has been enhanced with Effect-TS integration to provide:
+The agent package has been **completely rewritten** to use Effect-TS:
 - ✅ Type-safe error handling with tagged error unions
 - ✅ Composable service layer with dependency injection
 - ✅ Better async coordination and resource management
-- ✅ 100% backward compatibility (existing API unchanged)
+- ✅ Immutable state management with Ref
+- ✅ Pure Effect-based implementation (no legacy code)
 
 ## Implementation Status
 
@@ -149,14 +150,15 @@ src/effect/
 └── example.ts             # Example usage patterns
 ```
 
-## Backward Compatibility
+## Breaking Changes
 
-✅ **100% Backward Compatible**
+⚠️ **This is a complete rewrite**
 
-- Original `Agent` class is unchanged
-- Original `agent-loop.ts` is unchanged
-- All existing tests pass without modification
-- `AgentEffect` defaults to `useEffect: false` (uses original implementation)
+- `Agent` class now uses Effect-TS internally (no opt-in needed)
+- Removed `agent-loop.ts` (replaced by `effect/loop.ts`)
+- Removed `AgentEffect` class (use `Agent` directly)
+- Removed `AgentLoopConfig` type (internal to Effect implementation)
+- Public API remains the same, but internals are completely rewritten
 
 ## Testing
 

@@ -1,11 +1,11 @@
 # @mariozechner/pi-agent-core
 
-Stateful agent with tool execution and event streaming. Built on `@mariozechner/pi-ai`.
+Stateful agent with tool execution and event streaming. **Powered by Effect-TS** for type-safe error handling and composability. Built on `@mariozechner/pi-ai`.
 
 ## Installation
 
 ```bash
-npm install @mariozechner/pi-agent-core
+npm install @mariozechner/pi-agent-core effect
 ```
 
 ## Quick Start
@@ -31,11 +31,9 @@ agent.subscribe((event) => {
 await agent.prompt("Hello!");
 ```
 
-## Effect-TS Integration
+## Built on Effect-TS
 
-The agent package includes a **fully functional** Effect-TS integration for enhanced error handling, composability, and resource management.
-
-### Why Effect?
+This agent is powered by Effect-TS, providing:
 
 - **Type-safe errors**: 8 tagged error types (StreamError, ToolNotFoundError, etc.)
 - **Dependency injection**: Clean service layer with Effect.Context
@@ -43,33 +41,9 @@ The agent package includes a **fully functional** Effect-TS integration for enha
 - **Composable**: Better async coordination and resource management
 - **Production ready**: Fully tested with all existing tests passing
 
-### Usage
+### Effect Architecture
 
-```typescript
-import { AgentEffect } from "@mariozechner/pi-agent-core";
-import { getModel } from "@mariozechner/pi-ai";
-
-const agent = new AgentEffect({
-  initialState: {
-    systemPrompt: "You are a helpful assistant.",
-    model: getModel("anthropic", "claude-sonnet-4-20250514"),
-  },
-  useEffect: true,  // ← Enable Effect-TS integration
-});
-
-// API is identical to Agent class
-agent.subscribe((event) => {
-  if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") {
-    process.stdout.write(event.assistantMessageEvent.delta);
-  }
-});
-
-await agent.prompt("Hello!");
-```
-
-### What Works Now
-
-The Effect integration is **fully operational**:
+The agent uses Effect internally for:
 
 - ✅ Complete agent loop powered by Effect runtime
 - ✅ Service layer with dependency injection (8 services)
@@ -78,26 +52,10 @@ The Effect integration is **fully operational**:
 - ✅ Event emission through Effect services
 - ✅ Tool execution with proper error handling
 - ✅ Steering and follow-up message support
-- ✅ All 25 tests passing (including 7 Effect-specific tests)
-
-### Implementation Status
-
-- ✅ **Phase 1 (Infrastructure)**: Complete - Error types, services, interop, state management
-- ✅ **Phase 2 (Integration)**: Complete - Runtime wiring, event system, full functionality
-- ⏳ **Phase 3 (Enhancement)**: Planned - Retry policies, timeouts, telemetry, pure Effect API
-
-### Backward Compatibility
-
-The Effect integration is **opt-in** and **100% backward compatible**:
-
-- **Default**: `useEffect: false` (uses original implementation)
-- **Opt-in**: `useEffect: true` (uses Effect-based implementation)
-- **Public API**: Identical regardless of which implementation is used
-- **Zero breaking changes**: All existing code continues to work
 
 ### Tagged Error Types
 
-When using Effect, all errors are type-safe:
+All errors are type-safe thanks to Effect:
 
 ```typescript
 import type { AgentLoopError } from "@mariozechner/pi-agent-core";
@@ -117,7 +75,7 @@ Errors are automatically caught and converted to proper error messages in the ag
 
 ### Service Architecture
 
-The Effect implementation uses a service layer for clean dependency injection:
+The agent uses a service layer for clean dependency injection:
 
 - **StreamService** - Wraps LLM streaming functions
 - **ApiKeyService** - Dynamic API key resolution
@@ -132,12 +90,10 @@ All services are composed using `Layer.mergeAll` and provided to the Effect runt
 
 ### Performance
 
-The Effect implementation has **no performance regression** compared to the original:
-
-- Same async behavior (uses Effect.promise for LLM streaming)
-- Same event emission pattern
-- Same state management overhead (Ref vs direct mutation is negligible)
-- Slightly larger bundle size due to Effect dependency (~500KB gzipped)
+- Fast async behavior with Effect.promise for LLM streaming
+- Efficient event emission pattern
+- Minimal state management overhead (Ref-based immutable updates)
+- Bundle size: ~500KB gzipped for Effect dependency
 
 ### Documentation
 
@@ -283,11 +239,8 @@ const agent = new Agent({
   },
 });
 
-// AgentEffect-specific option (experimental)
-const effectAgent = new AgentEffect({
-  // All the same options as Agent, plus:
-  useEffect: true,  // Enable Effect-TS integration (default: false)
-});
+// Note: Agent is powered by Effect-TS internally
+// No special configuration needed
 ```
 
 ## Agent State
@@ -498,35 +451,19 @@ const agent = new Agent({
 });
 ```
 
-## Low-Level API
+## Effect Integration
 
-For direct control without the Agent class:
+Under the hood, the Agent class uses Effect-TS for all operations. The Effect-based implementation provides:
 
-```typescript
-import { agentLoop, agentLoopContinue } from "@mariozechner/pi-agent-core";
+- **Service composition** via `Layer.mergeAll`
+- **Type-safe errors** with tagged error unions
+- **Immutable state** using `Ref`
+- **Structured concurrency** for async operations
 
-const context: AgentContext = {
-  systemPrompt: "You are helpful.",
-  messages: [],
-  tools: [],
-};
-
-const config: AgentLoopConfig = {
-  model: getModel("openai", "gpt-4o"),
-  convertToLlm: (msgs) => msgs.filter(m => ["user", "assistant", "toolResult"].includes(m.role)),
-};
-
-const userMessage = { role: "user", content: "Hello", timestamp: Date.now() };
-
-for await (const event of agentLoop([userMessage], context, config)) {
-  console.log(event.type);
-}
-
-// Continue from existing context
-for await (const event of agentLoopContinue(context, config)) {
-  console.log(event.type);
-}
-```
+For details on the Effect implementation, see:
+- `src/effect/loop.ts` - Core Effect-based agent loop
+- `src/effect/services.ts` - Service definitions
+- `src/effect/README.md` - Effect architecture documentation
 
 ## License
 
