@@ -13,6 +13,7 @@ import {
 	type TextContent,
 	type ThinkingBudgets,
 } from "@mariozechner/pi-ai";
+import { Effect, Layer } from "effect";
 import { agentLoop, agentLoopContinue } from "../agent-loop.js";
 import type {
 	AgentContext,
@@ -23,18 +24,17 @@ import type {
 	StreamFn,
 	ThinkingLevel,
 } from "../types.js";
-
-// Service factories commented out until Effect loop is fully implemented
-// import {
-// 	makeApiKeyService,
-// 	makeEventEmitter,
-// 	makeFollowUpQueue,
-// 	makeMessageTransformer,
-// 	makeSessionConfig,
-// 	makeSteeringQueue,
-// 	makeStreamService,
-// 	makeToolExecutor,
-// } from "./services.js";
+import { runAgentLoop } from "./loop.js";
+import {
+	makeApiKeyService,
+	makeEventEmitter,
+	makeFollowUpQueue,
+	makeMessageTransformer,
+	makeSessionConfig,
+	makeSteeringQueue,
+	makeStreamService,
+	makeToolExecutor,
+} from "./services.js";
 
 /**
  * Default convertToLlm: Keep only LLM-compatible messages
@@ -351,33 +351,59 @@ export class AgentEffect {
 		this._state.streamMessage = null;
 		this._state.error = undefined;
 
-		try {
-			// Build Effect runtime with all services (for future use)
-			// Currently falls back to original implementation until Effect loop is complete
-			// TODO: Complete Effect loop integration and use runtime
-			// Layer.mergeAll(
-			// 	makeStreamService(this.streamFn),
-			// 	makeApiKeyService(this.getApiKey),
-			// 	makeMessageTransformer(this.convertToLlm, this.transformContext),
-			// 	makeToolExecutor(),
-			// 	makeEventEmitter((event) => this.emit(event)),
-			// 	makeSteeringQueue(() => {
-			// 		if (options?.skipInitialSteeringPoll) {
-			// 			options.skipInitialSteeringPoll = false;
-			// 			return [];
-			// 		}
-			// 		return this.dequeueSteeringMessages();
-			// 	}),
-			// 	makeFollowUpQueue(() => this.dequeueFollowUpMessages()),
-			// 	makeSessionConfig({
-			// 		sessionId: this._sessionId,
-			// 		thinkingBudgets: this._thinkingBudgets,
-			// 		maxRetryDelayMs: this._maxRetryDelayMs,
-			// 	}),
-			// );
+		const reasoning = this._state.thinkingLevel === "off" ? undefined : this._state.thinkingLevel;
 
-			// For now, fall back to original implementation since Effect loop needs more work
-			await this._runLoopOriginal(messages, options);
+		try {
+			// Build Effect runtime with all services
+			const layer = Layer.mergeAll(
+				makeStreamService(this.streamFn),
+				makeApiKeyService(this.getApiKey),
+				makeMessageTransformer(this.convertToLlm, this.transformContext),
+				makeToolExecutor(),
+				makeEventEmitter((event) => {
+					this._handleEvent(event);
+				}),
+				makeSteeringQueue(() => {
+					if (options?.skipInitialSteeringPoll) {
+						options.skipInitialSteeringPoll = false;
+						return [];
+					}
+					return this.dequeueSteeringMessages();
+				}),
+				makeFollowUpQueue(() => this.dequeueFollowUpMessages()),
+				makeSessionConfig({
+					sessionId: this._sessionId,
+					thinkingBudgets: this._thinkingBudgets,
+					maxRetryDelayMs: this._maxRetryDelayMs,
+				}),
+			);
+
+			// Build context for Effect loop
+			const context = {
+				...({
+					systemPrompt: this._state.systemPrompt,
+					messages: this._state.messages.slice(),
+					tools: this._state.tools,
+				} as AgentContext),
+				model,
+			};
+
+			const prompts = messages ?? [];
+
+			// Run the Effect-based loop
+			const program = runAgentLoop(context, prompts, {
+				signal: this.abortController.signal,
+				reasoning: reasoning as any,
+			});
+
+			const newMessages = await Effect.runPromise(program.pipe(Effect.provide(layer)));
+
+			// Update state with new messages
+			for (const msg of newMessages) {
+				if (!this._state.messages.includes(msg)) {
+					this.appendMessage(msg);
+				}
+			}
 		} catch (err: any) {
 			this._handleError(err);
 		} finally {
