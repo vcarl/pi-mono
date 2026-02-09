@@ -1,45 +1,46 @@
 {
-	"name": "@mariozechner/pi-agent-core",
-	"version": "0.52.9",
-	"description": "General-purpose agent with transport abstraction, state management, and attachment support",
-	"type": "module",
-	"main": "./dist/index.js",
-	"types": "./dist/index.d.ts",
-	"files": [
-		"dist",
-		"README.md"
-	],
-	"scripts": {
-		"clean": "rm -rf dist",
-		"build": "tsgo -p tsconfig.build.json",
-		"dev": "tsgo -p tsconfig.build.json --watch --preserveWatchOutput",
-		"test": "vitest --run",
-		"prepublishOnly": "npm run clean && npm run build"
-	},
-	"dependencies": {
-		"@mariozechner/pi-ai": "^0.52.9",
-		"effect": "^3.15.0"
-	},
-	"keywords": [
-		"ai",
-		"agent",
-		"llm",
-		"transport",
-		"state-management"
-	],
-	"author": "Mario Zechner",
-	"license": "MIT",
-	"repository": {
-		"type": "git",
-		"url": "git+https://github.com/badlogic/pi-mono.git",
-		"directory": "packages/agent"
-	},
-	"engines": {
-		"node": ">=20.0.0"
-	},
-	"devDependencies": {
-		"@types/node": "^24.3.0",
-		"typescript": "^5.7.3",
-		"vitest": "^3.2.4"
-	}
+  "name": "@vcarl/pi-agent-core",
+  "version": "0.0.1",
+  "description": "General-purpose Effect-TS based agent with transport abstraction, state management, and attachment support",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "clean": "rm -rf dist",
+    "build": "tsgo -p tsconfig.build.json",
+    "dev": "tsgo -p tsconfig.build.json --watch --preserveWatchOutput",
+    "test": "vitest --run",
+    "test:e2e": "tsgo scripts/e2e-test.ts && node scripts/e2e-test.js",
+    "prepublishOnly": "npm run clean && npm run build"
+  },
+  "dependencies": {
+    "@mariozechner/pi-ai": "^0.52.9",
+    "effect": "^3.15.0"
+  },
+  "keywords": [
+    "ai",
+    "agent",
+    "llm",
+    "transport",
+    "state-management"
+  ],
+  "author": "Carl Vitullo",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vcarl/pi-mono.git",
+    "directory": "packages/agent"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "typescript": "^5.7.3",
+    "vitest": "^3.2.4"
+  }
 }
