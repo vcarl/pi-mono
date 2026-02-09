@@ -11,18 +11,9 @@ import {
 	type TextContent,
 	type ThinkingBudgets,
 } from "@mariozechner/pi-ai";
-import { Effect, Layer } from "effect";
+import { Effect } from "effect";
+import { makeAgentLayer } from "./effect/layers.js";
 import { runAgentLoop } from "./effect/loop.js";
-import {
-	makeApiKeyService,
-	makeEventEmitter,
-	makeFollowUpQueue,
-	makeMessageTransformer,
-	makeSessionConfig,
-	makeSteeringQueue,
-	makeStreamService,
-	makeToolExecutor,
-} from "./effect/services.js";
 import type {
 	AgentContext,
 	AgentEvent,
@@ -405,29 +396,27 @@ export class Agent {
 		const reasoning = this._state.thinkingLevel === "off" ? undefined : this._state.thinkingLevel;
 
 		try {
-			// Build Effect runtime with all services
-			const layer = Layer.mergeAll(
-				makeStreamService(this.streamFn),
-				makeApiKeyService(this.getApiKey),
-				makeMessageTransformer(this.convertToLlm, this.transformContext),
-				makeToolExecutor(),
-				makeEventEmitter((event) => {
-					this._handleEvent(event);
-				}),
-				makeSteeringQueue(() => {
+			// Build Effect runtime with all services using centralized layer
+			const layer = makeAgentLayer({
+				streamFn: this.streamFn,
+				getApiKey: this.getApiKey,
+				convertToLlm: this.convertToLlm,
+				transformContext: this.transformContext,
+				emitEvent: (event) => this._handleEvent(event),
+				pollSteering: () => {
 					if (options?.skipInitialSteeringPoll) {
 						options.skipInitialSteeringPoll = false;
 						return [];
 					}
 					return this.dequeueSteeringMessages();
-				}),
-				makeFollowUpQueue(() => this.dequeueFollowUpMessages()),
-				makeSessionConfig({
+				},
+				pollFollowUp: () => this.dequeueFollowUpMessages(),
+				sessionConfig: {
 					sessionId: this._sessionId,
 					thinkingBudgets: this._thinkingBudgets,
 					maxRetryDelayMs: this._maxRetryDelayMs,
-				}),
-			);
+				},
+			});
 
 			// Build context for Effect loop
 			const context = {

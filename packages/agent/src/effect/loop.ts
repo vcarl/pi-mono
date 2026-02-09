@@ -346,7 +346,10 @@ const executeToolCalls = (
 
 			try {
 				if (!tool) {
-					throw new ToolNotFoundError({ toolName: toolCall.name });
+					throw new ToolNotFoundError({
+						toolName: toolCall.name,
+						message: `Tool not found: ${toolCall.name}`,
+					});
 				}
 
 				const validatedArgs = yield* toolExecutor.validateArguments(tool, toolCall as any);

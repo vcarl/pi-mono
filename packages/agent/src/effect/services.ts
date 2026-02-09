@@ -185,3 +185,43 @@ export const makeFollowUpQueue = (pollFn: () => Promise<AgentMessage[]> | AgentM
 			poll: () => Effect.promise(async () => await pollFn()),
 		}),
 	);
+
+/**
+ * Resource management utilities for proper cleanup
+ */
+
+/**
+ * Wraps an Effect with automatic cleanup using Scope.
+ * This ensures resources are properly released even if the effect fails.
+ *
+ * @example
+ * ```typescript
+ * const program = withManagedResources(
+ *   Effect.gen(function* () {
+ *     const resource = yield* acquireResource
+ *     yield* Effect.addFinalizer(() => Effect.sync(() => resource.close()))
+ *     return yield* useResource(resource)
+ *   })
+ * )
+ * ```
+ */
+export const withManagedResources = <A, E, R>(effect: Effect.Effect<A, E, R>): Effect.Effect<A, E, R> =>
+	Effect.scoped(
+		Effect.gen(function* () {
+			return yield* effect;
+		}),
+	);
+
+/**
+ * Creates a managed service with automatic cleanup.
+ * The cleanup function is called when the scope closes.
+ */
+export const makeManagedService = <T>(
+	acquire: Effect.Effect<T, never, never>,
+	cleanup: (service: T) => Effect.Effect<void, never, never>,
+): Effect.Effect<T, never, import("effect").Scope.Scope> =>
+	Effect.gen(function* () {
+		const service = yield* acquire;
+		yield* Effect.addFinalizer(() => cleanup(service));
+		return service;
+	});

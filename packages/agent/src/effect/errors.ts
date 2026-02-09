@@ -1,9 +1,18 @@
 /**
  * Tagged error types for Effect-based agent loop.
- * These provide type-safe, composable error handling.
+ * These provide type-safe, composable error handling with proper inheritance.
  */
 
 import { Data } from "effect";
+
+/**
+ * Base error class for all agent errors.
+ * Provides common error structure with optional cause.
+ */
+export class AgentError extends Data.TaggedError("AgentError")<{
+	readonly message: string;
+	readonly cause?: unknown;
+}> {}
 
 /**
  * LLM streaming failure
@@ -18,6 +27,16 @@ export class StreamError extends Data.TaggedError("StreamError")<{
  */
 export class StreamAbortedError extends Data.TaggedError("StreamAbortedError")<{
 	readonly message: string;
+	readonly cause?: unknown;
+}> {}
+
+/**
+ * State management errors
+ */
+export class StateError extends Data.TaggedError("StateError")<{
+	readonly operation: string;
+	readonly message: string;
+	readonly cause?: unknown;
 }> {}
 
 /**
@@ -25,6 +44,8 @@ export class StreamAbortedError extends Data.TaggedError("StreamAbortedError")<{
  */
 export class ToolNotFoundError extends Data.TaggedError("ToolNotFoundError")<{
 	readonly toolName: string;
+	readonly message: string;
+	readonly cause?: unknown;
 }> {}
 
 /**
@@ -75,8 +96,10 @@ export class ApiKeyError extends Data.TaggedError("ApiKeyError")<{
  * Union of all agent loop errors
  */
 export type AgentLoopError =
+	| AgentError
 	| StreamError
 	| StreamAbortedError
+	| StateError
 	| ToolNotFoundError
 	| ToolValidationError
 	| ToolExecutionError

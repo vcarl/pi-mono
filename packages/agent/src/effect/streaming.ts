@@ -3,6 +3,7 @@
  */
 
 import type { AssistantMessage, AssistantMessageEvent } from "@mariozechner/pi-ai";
+import type { Chunk } from "effect";
 import { Effect, Queue, Stream } from "effect";
 import type { AgentEvent } from "../types.js";
 
@@ -68,3 +69,25 @@ export const accumulatePartialMessage = (
  */
 export const emitToEventStream = (emitFn: (event: AgentEvent) => void) => (event: AgentEvent) =>
 	Effect.sync(() => emitFn(event));
+
+/**
+ * Batches stream elements for efficient processing with backpressure support.
+ * Useful for reducing overhead when processing high-volume streams.
+ *
+ * @param batchSize Maximum number of elements per batch
+ * @param interval Maximum time to wait before emitting a partial batch
+ * @returns A stream transformation that groups elements into batches
+ *
+ * @example
+ * ```typescript
+ * const batchedStream = pipe(
+ *   myStream,
+ *   batchedStreamProcessing(100, Duration.millis(50)),
+ *   Stream.mapEffect(processBatch)
+ * );
+ * ```
+ */
+export const batchedStreamProcessing =
+	<A>(batchSize: number, interval: import("effect").Duration.Duration) =>
+	(stream: Stream.Stream<A, never, never>): Stream.Stream<Chunk.Chunk<A>, never, never> =>
+		stream.pipe(Stream.groupedWithin(batchSize, interval));
