@@ -31,6 +31,79 @@ agent.subscribe((event) => {
 await agent.prompt("Hello!");
 ```
 
+## Effect-TS Integration (Experimental)
+
+The agent package includes an experimental Effect-TS integration for enhanced error handling, composability, and resource management.
+
+### Why Effect?
+
+- **Type-safe errors**: 8 tagged error types (StreamError, ToolNotFoundError, etc.)
+- **Dependency injection**: Clean service layer with Effect.Context
+- **Immutable state**: Functional updates with Ref
+- **Composable**: Better async coordination and resource management
+
+### Usage
+
+```typescript
+import { AgentEffect } from "@mariozechner/pi-agent-core";
+import { getModel } from "@mariozechner/pi-ai";
+
+const agent = new AgentEffect({
+  initialState: {
+    systemPrompt: "You are a helpful assistant.",
+    model: getModel("anthropic", "claude-sonnet-4-20250514"),
+  },
+  useEffect: true,  // ← Enable Effect-TS integration
+});
+
+// API is identical to Agent class
+agent.subscribe((event) => {
+  if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") {
+    process.stdout.write(event.assistantMessageEvent.delta);
+  }
+});
+
+await agent.prompt("Hello!");
+```
+
+### Status
+
+- ✅ **Phase 1 (Infrastructure)**: Complete
+- ✅ **Phase 2 (Integration)**: Complete
+- ⏳ **Phase 3 (Enhancement)**: Planned (retry logic, timeouts, telemetry)
+
+### Backward Compatibility
+
+The Effect integration is **opt-in** and **100% backward compatible**:
+
+- Default: `useEffect: false` (uses original implementation)
+- Enable: `useEffect: true` (uses Effect-based implementation)
+- Public API is identical regardless of which implementation is used
+
+### Error Types
+
+When using Effect, errors are typed:
+
+```typescript
+import type { AgentLoopError } from "@mariozechner/pi-agent-core";
+
+// AgentLoopError is a union of:
+// - StreamError - LLM streaming failures
+// - StreamAbortedError - Cancellation via AbortSignal
+// - ToolNotFoundError - Tool lookup failures
+// - ToolValidationError - Tool argument validation errors
+// - ToolExecutionError - Tool execution failures
+// - ContextTransformError - Context transformation errors
+// - MessageConversionError - Message conversion errors
+// - ApiKeyError - API key resolution errors
+```
+
+### Documentation
+
+For detailed Effect-TS integration documentation, see:
+- `src/effect/README.md` - User guide and API reference
+- `EFFECT_INTEGRATION.md` - Implementation details and architecture
+
 ## Core Concepts
 
 ### AgentMessage vs LLM Message
@@ -166,6 +239,12 @@ const agent = new Agent({
     medium: 1024,
     high: 2048,
   },
+});
+
+// AgentEffect-specific option (experimental)
+const effectAgent = new AgentEffect({
+  // All the same options as Agent, plus:
+  useEffect: true,  // Enable Effect-TS integration (default: false)
 });
 ```
 

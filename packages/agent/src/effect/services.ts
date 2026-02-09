@@ -93,10 +93,7 @@ export const makeMessageTransformer = (
  * Service for executing tools
  */
 export interface ToolExecutor {
-	readonly validateArguments: (
-		tool: AgentTool<any>,
-		toolCall: any,
-	) => Effect.Effect<any, never, never>;
+	readonly validateArguments: (tool: AgentTool<any>, toolCall: any) => Effect.Effect<any, never, never>;
 	readonly execute: (
 		tool: AgentTool<any>,
 		toolCallId: string,

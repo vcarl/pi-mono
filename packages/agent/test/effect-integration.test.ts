@@ -69,7 +69,8 @@ describe("Effect Integration", () => {
 				required: ["expression"],
 			},
 			execute: async (_id: string, params: { expression: string }) => {
-				const result = eval(params.expression);
+				// Simple mock calculation (test is skipped anyway)
+				const result = params.expression.includes("5 * 7") ? 35 : 42;
 				return {
 					content: [{ type: "text" as const, text: `Result: ${result}` }],
 					details: { result },
