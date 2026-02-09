@@ -3,7 +3,6 @@ import type {
 	ImageContent,
 	Message,
 	Model,
-	SimpleStreamOptions,
 	streamSimple,
 	TextContent,
 	Tool,

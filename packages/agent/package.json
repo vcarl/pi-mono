@@ -14,7 +14,7 @@
     "build": "tsgo -p tsconfig.build.json",
     "dev": "tsgo -p tsconfig.build.json --watch --preserveWatchOutput",
     "test": "vitest --run",
-    "test:e2e": "tsgo scripts/e2e-test.ts && node scripts/e2e-test.js",
+    "test:e2e": "tsx scripts/e2e-test.ts",
     "prepublishOnly": "npm run clean && npm run build"
   },
   "dependencies": {
@@ -40,6 +40,7 @@
   },
   "devDependencies": {
     "@types/node": "^24.3.0",
+    "tsx": "^4.19.2",
     "typescript": "^5.7.3",
     "vitest": "^3.2.4"
   }

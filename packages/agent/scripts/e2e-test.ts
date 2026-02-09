@@ -75,6 +75,91 @@ try {
 	process.exit(1);
 }
 
+// Step 4.5: Setup OAuth authentication
+console.log("📦 Step 4.5: Setting up OAuth authentication...");
+let oauthCredentials: any = null;
+let oauthApiKey: string | undefined = undefined;
+
+const credentialsPath = path.join(packageRoot, ".oauth-credentials.json");
+
+// Check if we have env token first
+if (process.env.ANTHROPIC_OAUTH_TOKEN) {
+	console.log("✅ Using ANTHROPIC_OAUTH_TOKEN from environment\n");
+	oauthApiKey = process.env.ANTHROPIC_OAUTH_TOKEN;
+} else if (process.env.ANTHROPIC_API_KEY) {
+	console.log("✅ Using ANTHROPIC_API_KEY from environment\n");
+	oauthApiKey = process.env.ANTHROPIC_API_KEY;
+} else {
+	// Check for saved credentials
+	if (fs.existsSync(credentialsPath)) {
+		try {
+			const saved = JSON.parse(fs.readFileSync(credentialsPath, "utf-8"));
+			const now = Date.now();
+
+			// Check if token is expired
+			if (saved.expires && saved.expires > now) {
+				console.log("✅ Using saved OAuth credentials\n");
+				oauthCredentials = saved;
+				oauthApiKey = saved.access;
+			} else {
+				console.log("🔄 Refreshing expired OAuth token...");
+				const piAi = await import("@mariozechner/pi-ai");
+				oauthCredentials = await piAi.refreshAnthropicToken(saved.refresh);
+				oauthApiKey = oauthCredentials.access;
+
+				// Save refreshed credentials
+				fs.writeFileSync(credentialsPath, JSON.stringify(oauthCredentials, null, 2));
+				console.log("✅ OAuth token refreshed\n");
+			}
+		} catch (error) {
+			console.log("⚠️  Failed to load/refresh saved credentials, will re-authenticate");
+			console.error(error);
+		}
+	}
+
+	// If still no credentials, start OAuth login
+	if (!oauthApiKey) {
+		console.log("🔐 No credentials found. Starting OAuth login...");
+		try {
+			// Dynamic import to avoid bundling issues
+			const piAi = await import("@mariozechner/pi-ai");
+
+			oauthCredentials = await piAi.loginAnthropic(
+				(url) => {
+					console.log(`\n🌐 Visit this URL to authenticate:\n${url}\n`);
+				},
+				async () => {
+					// Use readline for user input
+					const readline = await import("readline");
+					const rl = readline.createInterface({
+						input: process.stdin,
+						output: process.stdout,
+					});
+
+					return new Promise<string>((resolve) => {
+						rl.question("Enter the authorization code: ", (code) => {
+							rl.close();
+							resolve(code);
+						});
+					});
+				},
+			);
+
+			// Use the access token directly
+			oauthApiKey = oauthCredentials.access;
+
+			// Save credentials for future runs
+			fs.writeFileSync(credentialsPath, JSON.stringify(oauthCredentials, null, 2));
+			console.log("✅ OAuth login successful (credentials saved)\n");
+		} catch (error) {
+			console.error("❌ OAuth login failed with error:");
+			console.error(error);
+			console.log("\n⚠️  Test will run without authentication.");
+			console.log("   The agent will not produce output.\n");
+		}
+	}
+}
+
 // Step 5: Create agent script
 console.log("📦 Step 5: Creating agent script...");
 const agentScript = `
@@ -98,6 +183,19 @@ Rules:
 - Suggest specific improvements with file paths
 - Consider Effect-TS best practices\`,
     model: getModel("anthropic", "claude-sonnet-4-20250514"),
+  },
+  // Add getApiKey for OAuth token refresh
+  getApiKey: async (provider) => {
+    if (provider === "anthropic") {
+      // Use OAuth if credentials are provided via env
+      if (process.env.ANTHROPIC_OAUTH_TOKEN) {
+        return process.env.ANTHROPIC_OAUTH_TOKEN;
+      }
+      if (process.env.ANTHROPIC_API_KEY) {
+        return process.env.ANTHROPIC_API_KEY;
+      }
+    }
+    return undefined;
   },
 });
 
@@ -177,8 +275,9 @@ try {
 		stdio: "inherit",
 		env: {
 			...process.env,
-			// Add API key if available
-			ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY || "",
+			// Pass OAuth credentials to agent script
+			ANTHROPIC_OAUTH_TOKEN: oauthApiKey || process.env.ANTHROPIC_OAUTH_TOKEN,
+			ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
 		},
 	});
 	console.log("=" .repeat(60));
