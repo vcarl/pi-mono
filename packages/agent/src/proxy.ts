@@ -61,12 +61,86 @@ export interface ProxyStreamOptions extends SimpleStreamOptions {
 	authToken: string;
 	/** Proxy server URL (e.g., "https://genai.example.com") */
 	proxyUrl: string;
+	/** Maximum number of retry attempts (default: 3) */
+	maxRetries?: number;
+	/** Timeout for each request in milliseconds (default: 60000) */
+	timeoutMs?: number;
+	/** Exponential backoff base delay in milliseconds (default: 1000) */
+	retryDelayMs?: number;
+}
+
+/**
+ * Helper function to implement exponential backoff retry logic
+ */
+async function retryWithBackoff<T>(
+	fn: () => Promise<T>,
+	maxRetries: number,
+	baseDelayMs: number,
+	signal?: AbortSignal,
+): Promise<T> {
+	let lastError: Error | undefined;
+
+	for (let attempt = 0; attempt <= maxRetries; attempt++) {
+		if (signal?.aborted) {
+			throw new Error("Request aborted by user");
+		}
+
+		try {
+			return await fn();
+		} catch (error) {
+			lastError = error instanceof Error ? error : new Error(String(error));
+
+			// Don't retry on abort or if it's the last attempt
+			if (signal?.aborted || attempt === maxRetries) {
+				throw lastError;
+			}
+
+			// Check if the error is retryable (network errors, 5xx, rate limits)
+			const isRetryable =
+				error instanceof TypeError || // Network error
+				(error instanceof Error && error.message.includes("503")) ||
+				(error instanceof Error && error.message.includes("429")) ||
+				(error instanceof Error && error.message.includes("500"));
+
+			if (!isRetryable) {
+				throw lastError;
+			}
+
+			// Exponential backoff: baseDelay * 2^attempt
+			const delayMs = baseDelayMs * 2 ** attempt;
+			await new Promise((resolve) => setTimeout(resolve, delayMs));
+		}
+	}
+
+	throw lastError ?? new Error("Retry failed");
+}
+
+/**
+ * Helper function to implement request timeout
+ */
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, signal?: AbortSignal): Promise<T> {
+	return Promise.race([
+		promise,
+		new Promise<T>((_, reject) => {
+			const timeout = setTimeout(() => {
+				reject(new Error(`Request timeout after ${timeoutMs}ms`));
+			}, timeoutMs);
+
+			// Clear timeout if signal aborts
+			signal?.addEventListener("abort", () => {
+				clearTimeout(timeout);
+				reject(new Error("Request aborted by user"));
+			});
+		}),
+	]);
 }
 
 /**
  * Stream function that proxies through a server instead of calling LLM providers directly.
  * The server strips the partial field from delta events to reduce bandwidth.
  * We reconstruct the partial message client-side.
+ *
+ * Includes automatic retry with exponential backoff and configurable timeouts.
  *
  * Use this as the `streamFn` option when creating an Agent that needs to go through a proxy.
  *
@@ -78,6 +152,8 @@ export interface ProxyStreamOptions extends SimpleStreamOptions {
  *       ...options,
  *       authToken: await getAuthToken(),
  *       proxyUrl: "https://genai.example.com",
+ *       maxRetries: 3,
+ *       timeoutMs: 60000,
  *     }),
  * });
  * ```
@@ -86,6 +162,11 @@ export function streamProxy(model: Model<any>, context: Context, options: ProxyS
 	const stream = new ProxyMessageEventStream();
 
 	(async () => {
+		// Configuration with defaults
+		const maxRetries = options.maxRetries ?? 3;
+		const timeoutMs = options.timeoutMs ?? 60000;
+		const retryDelayMs = options.retryDelayMs ?? 1000;
+
 		// Initialize the partial message that we'll build up from events
 		const partial: AssistantMessage = {
 			role: "assistant",
@@ -118,23 +199,34 @@ export function streamProxy(model: Model<any>, context: Context, options: ProxyS
 		}
 
 		try {
-			const response = await fetch(`${options.proxyUrl}/api/stream`, {
-				method: "POST",
-				headers: {
-					Authorization: `Bearer ${options.authToken}`,
-					"Content-Type": "application/json",
-				},
-				body: JSON.stringify({
-					model,
-					context,
-					options: {
-						temperature: options.temperature,
-						maxTokens: options.maxTokens,
-						reasoning: options.reasoning,
-					},
-				}),
-				signal: options.signal,
-			});
+			// Wrap the fetch call with timeout and retry logic
+			const response = await retryWithBackoff(
+				() =>
+					withTimeout(
+						fetch(`${options.proxyUrl}/api/stream`, {
+							method: "POST",
+							headers: {
+								Authorization: `Bearer ${options.authToken}`,
+								"Content-Type": "application/json",
+							},
+							body: JSON.stringify({
+								model,
+								context,
+								options: {
+									temperature: options.temperature,
+									maxTokens: options.maxTokens,
+									reasoning: options.reasoning,
+								},
+							}),
+							signal: options.signal,
+						}),
+						timeoutMs,
+						options.signal,
+					),
+				maxRetries,
+				retryDelayMs,
+				options.signal,
+			);
 
 			if (!response.ok) {
 				let errorMessage = `Proxy error: ${response.status} ${response.statusText}`;

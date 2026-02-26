@@ -1,11 +1,11 @@
 # @mariozechner/pi-agent-core
 
-Stateful agent with tool execution and event streaming. Built on `@mariozechner/pi-ai`.
+Stateful agent with tool execution and event streaming. **Powered by Effect-TS** for type-safe error handling and composability. Built on `@mariozechner/pi-ai`.
 
 ## Installation
 
 ```bash
-npm install @mariozechner/pi-agent-core
+npm install @mariozechner/pi-agent-core effect
 ```
 
 ## Quick Start
@@ -30,6 +30,77 @@ agent.subscribe((event) => {
 
 await agent.prompt("Hello!");
 ```
+
+## Built on Effect-TS
+
+This agent is powered by Effect-TS, providing:
+
+- **Type-safe errors**: 8 tagged error types (StreamError, ToolNotFoundError, etc.)
+- **Dependency injection**: Clean service layer with Effect.Context
+- **Immutable state**: Functional updates with Ref
+- **Composable**: Better async coordination and resource management
+- **Production ready**: Fully tested with all existing tests passing
+
+### Effect Architecture
+
+The agent uses Effect internally for:
+
+- ✅ Complete agent loop powered by Effect runtime
+- ✅ Service layer with dependency injection (8 services)
+- ✅ Type-safe error handling with tagged errors
+- ✅ Immutable state management with Ref
+- ✅ Event emission through Effect services
+- ✅ Tool execution with proper error handling
+- ✅ Steering and follow-up message support
+
+### Tagged Error Types
+
+All errors are type-safe thanks to Effect:
+
+```typescript
+import type { AgentLoopError } from "@mariozechner/pi-agent-core";
+
+// AgentLoopError is a union of:
+// - StreamError - LLM streaming failures
+// - StreamAbortedError - Cancellation via AbortSignal
+// - ToolNotFoundError - Tool lookup failures
+// - ToolValidationError - Tool argument validation errors
+// - ToolExecutionError - Tool execution failures
+// - ContextTransformError - Context transformation errors
+// - MessageConversionError - Message conversion errors
+// - ApiKeyError - API key resolution errors
+```
+
+Errors are automatically caught and converted to proper error messages in the agent state, maintaining the same error handling behavior as the original implementation.
+
+### Service Architecture
+
+The agent uses a service layer for clean dependency injection:
+
+- **StreamService** - Wraps LLM streaming functions
+- **ApiKeyService** - Dynamic API key resolution
+- **MessageTransformer** - Message conversion and context transformation
+- **ToolExecutor** - Tool validation and execution
+- **EventEmitter** - Event emission to subscribers
+- **SessionConfig** - Session configuration (ID, budgets, retry delays)
+- **SteeringQueue** - Steering message polling
+- **FollowUpQueue** - Follow-up message polling
+
+All services are composed using `Layer.mergeAll` and provided to the Effect runtime.
+
+### Performance
+
+- Fast async behavior with Effect.promise for LLM streaming
+- Efficient event emission pattern
+- Minimal state management overhead (Ref-based immutable updates)
+- Bundle size: ~500KB gzipped for Effect dependency
+
+### Documentation
+
+For detailed Effect-TS integration documentation, see:
+- **`src/effect/README.md`** - User guide, API reference, and examples
+- **`EFFECT_INTEGRATION.md`** - Implementation details, architecture, and development guide
+- **`src/effect/example.ts`** - 5 working code examples
 
 ## Core Concepts
 
@@ -167,6 +238,9 @@ const agent = new Agent({
     high: 2048,
   },
 });
+
+// Note: Agent is powered by Effect-TS internally
+// No special configuration needed
 ```
 
 ## Agent State
@@ -377,35 +451,19 @@ const agent = new Agent({
 });
 ```
 
-## Low-Level API
+## Effect Integration
 
-For direct control without the Agent class:
+Under the hood, the Agent class uses Effect-TS for all operations. The Effect-based implementation provides:
 
-```typescript
-import { agentLoop, agentLoopContinue } from "@mariozechner/pi-agent-core";
+- **Service composition** via `Layer.mergeAll`
+- **Type-safe errors** with tagged error unions
+- **Immutable state** using `Ref`
+- **Structured concurrency** for async operations
 
-const context: AgentContext = {
-  systemPrompt: "You are helpful.",
-  messages: [],
-  tools: [],
-};
-
-const config: AgentLoopConfig = {
-  model: getModel("openai", "gpt-4o"),
-  convertToLlm: (msgs) => msgs.filter(m => ["user", "assistant", "toolResult"].includes(m.role)),
-};
-
-const userMessage = { role: "user", content: "Hello", timestamp: Date.now() };
-
-for await (const event of agentLoop([userMessage], context, config)) {
-  console.log(event.type);
-}
-
-// Continue from existing context
-for await (const event of agentLoopContinue(context, config)) {
-  console.log(event.type);
-}
-```
+For details on the Effect implementation, see:
+- `src/effect/loop.ts` - Core Effect-based agent loop
+- `src/effect/services.ts` - Service definitions
+- `src/effect/README.md` - Effect architecture documentation
 
 ## License
 

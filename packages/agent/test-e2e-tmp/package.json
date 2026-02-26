@@ -1,0 +1,8 @@
+{
+  "name": "agent-e2e-test",
+  "type": "module",
+  "dependencies": {
+    "@mariozechner/pi-ai": "^0.52.9",
+    "@vcarl/pi-agent-core": "file:../vcarl-pi-agent-core-0.0.1.tgz"
+  }
+}

@@ -10,6 +10,7 @@ packages/*/dist-firefox/
 
 # Environment
 .env
+.oauth-credentials.json
 
 # Editor files
 .vscode/

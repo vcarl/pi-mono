@@ -3,7 +3,6 @@ import type {
 	ImageContent,
 	Message,
 	Model,
-	SimpleStreamOptions,
 	streamSimple,
 	TextContent,
 	Tool,
@@ -15,87 +14,6 @@ import type { Static, TSchema } from "@sinclair/typebox";
 export type StreamFn = (
 	...args: Parameters<typeof streamSimple>
 ) => ReturnType<typeof streamSimple> | Promise<ReturnType<typeof streamSimple>>;
-
-/**
- * Configuration for the agent loop.
- */
-export interface AgentLoopConfig extends SimpleStreamOptions {
-	model: Model<any>;
-
-	/**
-	 * Converts AgentMessage[] to LLM-compatible Message[] before each LLM call.
-	 *
-	 * Each AgentMessage must be converted to a UserMessage, AssistantMessage, or ToolResultMessage
-	 * that the LLM can understand. AgentMessages that cannot be converted (e.g., UI-only notifications,
-	 * status messages) should be filtered out.
-	 *
-	 * @example
-	 * ```typescript
-	 * convertToLlm: (messages) => messages.flatMap(m => {
-	 *   if (m.role === "custom") {
-	 *     // Convert custom message to user message
-	 *     return [{ role: "user", content: m.content, timestamp: m.timestamp }];
-	 *   }
-	 *   if (m.role === "notification") {
-	 *     // Filter out UI-only messages
-	 *     return [];
-	 *   }
-	 *   // Pass through standard LLM messages
-	 *   return [m];
-	 * })
-	 * ```
-	 */
-	convertToLlm: (messages: AgentMessage[]) => Message[] | Promise<Message[]>;
-
-	/**
-	 * Optional transform applied to the context before `convertToLlm`.
-	 *
-	 * Use this for operations that work at the AgentMessage level:
-	 * - Context window management (pruning old messages)
-	 * - Injecting context from external sources
-	 *
-	 * @example
-	 * ```typescript
-	 * transformContext: async (messages) => {
-	 *   if (estimateTokens(messages) > MAX_TOKENS) {
-	 *     return pruneOldMessages(messages);
-	 *   }
-	 *   return messages;
-	 * }
-	 * ```
-	 */
-	transformContext?: (messages: AgentMessage[], signal?: AbortSignal) => Promise<AgentMessage[]>;
-
-	/**
-	 * Resolves an API key dynamically for each LLM call.
-	 *
-	 * Useful for short-lived OAuth tokens (e.g., GitHub Copilot) that may expire
-	 * during long-running tool execution phases.
-	 */
-	getApiKey?: (provider: string) => Promise<string | undefined> | string | undefined;
-
-	/**
-	 * Returns steering messages to inject into the conversation mid-run.
-	 *
-	 * Called after each tool execution to check for user interruptions.
-	 * If messages are returned, remaining tool calls are skipped and
-	 * these messages are added to the context before the next LLM call.
-	 *
-	 * Use this for "steering" the agent while it's working.
-	 */
-	getSteeringMessages?: () => Promise<AgentMessage[]>;
-
-	/**
-	 * Returns follow-up messages to process after the agent would otherwise stop.
-	 *
-	 * Called when the agent has no more tool calls and no steering messages.
-	 * If messages are returned, they're added to the context and the agent
-	 * continues with another turn.
-	 *
-	 * Use this for follow-up messages that should wait until the agent finishes.
-	 */
-	getFollowUpMessages?: () => Promise<AgentMessage[]>;
-}
 
 /**
  * Thinking/reasoning level for models that support it.
@@ -192,3 +110,6 @@ export type AgentEvent =
 	| { type: "tool_execution_start"; toolCallId: string; toolName: string; args: any }
 	| { type: "tool_execution_update"; toolCallId: string; toolName: string; args: any; partialResult: any }
 	| { type: "tool_execution_end"; toolCallId: string; toolName: string; result: any; isError: boolean };
+
+// Effect-TS error types
+export type { AgentLoopError } from "./effect/errors.js";
