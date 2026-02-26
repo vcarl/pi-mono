@@ -5,6 +5,7 @@
  */
 
 import { execSync } from "child_process";
+import { Effect, Console } from "effect";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -13,40 +14,49 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const packageRoot = path.resolve(__dirname, "..");
 const testDir = path.join(packageRoot, "test-e2e-tmp");
+const credentialsPath = path.join(packageRoot, ".oauth-credentials.json");
 
-console.log("🧪 E2E Test: Agent Self-Improvement\n");
+// Effect-based OAuth credentials type
+interface OAuthCredentials {
+	refresh: string;
+	access: string;
+	expires: number;
+}
 
 // Step 1: Clean and build
-console.log("📦 Step 1: Building package...");
-try {
-	execSync("npm run clean && npm run build", { cwd: packageRoot, stdio: "inherit" });
-	console.log("✅ Build complete\n");
-} catch (error) {
-	console.error("❌ Build failed");
-	process.exit(1);
-}
+const buildPackage = Effect.gen(function* () {
+	yield* Console.log("📦 Step 1: Building package...");
+	yield* Effect.try({
+		try: () => execSync("npm run clean && npm run build", { cwd: packageRoot, stdio: "inherit" }),
+		catch: () => new Error("Build failed"),
+	});
+	yield* Console.log("✅ Build complete\n");
+});
 
 // Step 2: Create tarball
-console.log("📦 Step 2: Creating tarball...");
-let tarballPath: string;
-try {
-	const output = execSync("npm pack", { cwd: packageRoot, encoding: "utf-8" });
+const createTarball = Effect.gen(function* () {
+	yield* Console.log("📦 Step 2: Creating tarball...");
+	const output = yield* Effect.try({
+		try: () => execSync("npm pack", { cwd: packageRoot, encoding: "utf-8" }),
+		catch: () => new Error("Pack failed"),
+	});
 	const tarballName = output.trim().split("\n").pop()!;
-	tarballPath = path.join(packageRoot, tarballName);
-	console.log(`✅ Created: ${tarballName}\n`);
-} catch (error) {
-	console.error("❌ Pack failed");
-	process.exit(1);
-}
+	const tarballPath = path.join(packageRoot, tarballName);
+	yield* Console.log(`✅ Created: ${tarballName}\n`);
+	return tarballPath;
+});
 
 // Step 3: Setup test environment
-console.log("📦 Step 3: Setting up test environment...");
-try {
+const setupTestEnvironment = Effect.gen(function* () {
+	yield* Console.log("📦 Step 3: Setting up test environment...");
+
 	// Clean previous test dir
-	if (fs.existsSync(testDir)) {
-		fs.rmSync(testDir, { recursive: true, force: true });
-	}
-	fs.mkdirSync(testDir, { recursive: true });
+	yield* Effect.sync(() => {
+		if (fs.existsSync(testDir)) {
+			fs.rmSync(testDir, { recursive: true, force: true });
+		}
+		fs.mkdirSync(testDir, { recursive: true });
+	});
 
 	// Create minimal package.json
 	const testPackageJson = {
@@ -54,115 +64,168 @@ try {
 		type: "module",
 		dependencies: {},
 	};
-	fs.writeFileSync(path.join(testDir, "package.json"), JSON.stringify(testPackageJson, null, 2));
+	yield* Effect.sync(() => {
+		fs.writeFileSync(path.join(testDir, "package.json"), JSON.stringify(testPackageJson, null, 2));
+	});
 
-	console.log("✅ Test environment ready\n");
-} catch (error) {
-	console.error("❌ Setup failed:", error);
-	process.exit(1);
-}
+	yield* Console.log("✅ Test environment ready\n");
+});
 
 // Step 4: Install tarball
-console.log("📦 Step 4: Installing tarball...");
-try {
-	execSync(`npm install ${tarballPath} @mariozechner/pi-ai`, {
-		cwd: testDir,
-		stdio: "inherit",
+const installTarball = (tarballPath: string) =>
+	Effect.gen(function* () {
+		yield* Console.log("📦 Step 4: Installing tarball...");
+		yield* Effect.try({
+			try: () =>
+				execSync(`npm install ${tarballPath} @mariozechner/pi-ai`, {
+					cwd: testDir,
+					stdio: "inherit",
+				}),
+			catch: () => new Error("Install failed"),
+		});
+		yield* Console.log("✅ Package installed\n");
 	});
-	console.log("✅ Package installed\n");
-} catch (error) {
-	console.error("❌ Install failed");
-	process.exit(1);
-}
 
-// Step 4.5: Setup OAuth authentication
-console.log("📦 Step 4.5: Setting up OAuth authentication...");
-let oauthCredentials: any = null;
-let oauthApiKey: string | undefined = undefined;
+// Helper: Prompt for user input
+const promptUserInput = (question: string) =>
+	Effect.promise(async () => {
+		const readline = await import("readline");
+		const rl = readline.createInterface({
+			input: process.stdin,
+			output: process.stdout,
+		});
 
-const credentialsPath = path.join(packageRoot, ".oauth-credentials.json");
+		return new Promise<string>((resolve) => {
+			rl.question(question, (answer) => {
+				rl.close();
+				resolve(answer);
+			});
+		});
+	});
 
-// Check if we have env token first
-if (process.env.ANTHROPIC_OAUTH_TOKEN) {
-	console.log("✅ Using ANTHROPIC_OAUTH_TOKEN from environment\n");
-	oauthApiKey = process.env.ANTHROPIC_OAUTH_TOKEN;
-} else if (process.env.ANTHROPIC_API_KEY) {
-	console.log("✅ Using ANTHROPIC_API_KEY from environment\n");
-	oauthApiKey = process.env.ANTHROPIC_API_KEY;
-} else {
-	// Check for saved credentials
-	if (fs.existsSync(credentialsPath)) {
-		try {
-			const saved = JSON.parse(fs.readFileSync(credentialsPath, "utf-8"));
+// Helper: Load saved credentials
+const loadSavedCredentials = Effect.gen(function* () {
+	const exists = yield* Effect.sync(() => fs.existsSync(credentialsPath));
+	if (!exists) return null;
+
+	return yield* Effect.try({
+		try: () => {
+			const saved = JSON.parse(fs.readFileSync(credentialsPath, "utf-8")) as OAuthCredentials;
 			const now = Date.now();
+			return saved.expires && saved.expires > now ? saved : null;
+		},
+		catch: () => null,
+	});
+});
 
-			// Check if token is expired
-			if (saved.expires && saved.expires > now) {
-				console.log("✅ Using saved OAuth credentials\n");
-				oauthCredentials = saved;
-				oauthApiKey = saved.access;
-			} else {
-				console.log("🔄 Refreshing expired OAuth token...");
-				const piAi = await import("@mariozechner/pi-ai");
-				oauthCredentials = await piAi.refreshAnthropicToken(saved.refresh);
-				oauthApiKey = oauthCredentials.access;
+// Helper: Refresh OAuth token
+const refreshOAuthToken = (refreshToken: string) =>
+	Effect.gen(function* () {
+		yield* Console.log("🔄 Refreshing expired OAuth token...");
+		const piAi = yield* Effect.promise(() => import("@mariozechner/pi-ai"));
+		const credentials = yield* Effect.tryPromise({
+			try: () => piAi.refreshAnthropicToken(refreshToken),
+			catch: () => new Error("Token refresh failed"),
+		});
 
-				// Save refreshed credentials
-				fs.writeFileSync(credentialsPath, JSON.stringify(oauthCredentials, null, 2));
-				console.log("✅ OAuth token refreshed\n");
-			}
-		} catch (error) {
-			console.log("⚠️  Failed to load/refresh saved credentials, will re-authenticate");
-			console.error(error);
-		}
-	}
+		// Save refreshed credentials
+		yield* Effect.sync(() => {
+			fs.writeFileSync(credentialsPath, JSON.stringify(credentials, null, 2));
+		});
+		yield* Console.log("✅ OAuth token refreshed\n");
+		return credentials;
+	});
 
-	// If still no credentials, start OAuth login
-	if (!oauthApiKey) {
-		console.log("🔐 No credentials found. Starting OAuth login...");
-		try {
-			// Dynamic import to avoid bundling issues
-			const piAi = await import("@mariozechner/pi-ai");
+// Helper: Perform OAuth login
+const performOAuthLogin = Effect.gen(function* () {
+	yield* Console.log("🔐 No credentials found. Starting OAuth login...");
 
-			oauthCredentials = await piAi.loginAnthropic(
+	const piAi = yield* Effect.promise(() => import("@mariozechner/pi-ai"));
+
+	const credentials = yield* Effect.tryPromise({
+		try: () =>
+			piAi.loginAnthropic(
 				(url) => {
 					console.log(`\n🌐 Visit this URL to authenticate:\n${url}\n`);
 				},
-				async () => {
-					// Use readline for user input
-					const readline = await import("readline");
-					const rl = readline.createInterface({
-						input: process.stdin,
-						output: process.stdout,
-					});
+				() => promptUserInput("Enter the authorization code: "),
+			),
+		catch: (error) => new Error(`OAuth login failed: ${error}`),
+	});
 
-					return new Promise<string>((resolve) => {
-						rl.question("Enter the authorization code: ", (code) => {
-							rl.close();
-							resolve(code);
-						});
-					});
-				},
+	// Save credentials for future runs
+	yield* Effect.sync(() => {
+		fs.writeFileSync(credentialsPath, JSON.stringify(credentials, null, 2));
+	});
+	yield* Console.log("✅ OAuth login successful (credentials saved)\n");
+
+	return credentials;
+});
+
+// Step 4.5: Setup OAuth authentication
+const setupOAuthAuthentication = Effect.gen(function* () {
+	yield* Console.log("📦 Step 4.5: Setting up OAuth authentication...");
+
+	// Check environment variables first
+	const envOAuthToken = process.env.ANTHROPIC_OAUTH_TOKEN;
+	if (envOAuthToken) {
+		yield* Console.log("✅ Using ANTHROPIC_OAUTH_TOKEN from environment\n");
+		return envOAuthToken;
+	}
+
+	const envApiKey = process.env.ANTHROPIC_API_KEY;
+	if (envApiKey) {
+		yield* Console.log("✅ Using ANTHROPIC_API_KEY from environment\n");
+		return envApiKey;
+	}
+
+	// Check for saved credentials
+	const savedCredentials = yield* loadSavedCredentials;
+	if (savedCredentials) {
+		yield* Console.log("✅ Using saved OAuth credentials\n");
+		return savedCredentials.access;
+	}
+
+	// Check for expired credentials that need refresh
+	const exists = yield* Effect.sync(() => fs.existsSync(credentialsPath));
+	if (exists) {
+		const maybeExpired = yield* Effect.try({
+			try: () => JSON.parse(fs.readFileSync(credentialsPath, "utf-8")) as OAuthCredentials,
+			catch: () => null,
+		});
+
+		if (maybeExpired) {
+			const refreshed = yield* refreshOAuthToken(maybeExpired.refresh).pipe(
+				Effect.catchAll(() => Effect.succeed(null)),
 			);
-
-			// Use the access token directly
-			oauthApiKey = oauthCredentials.access;
-
-			// Save credentials for future runs
-			fs.writeFileSync(credentialsPath, JSON.stringify(oauthCredentials, null, 2));
-			console.log("✅ OAuth login successful (credentials saved)\n");
-		} catch (error) {
-			console.error("❌ OAuth login failed with error:");
-			console.error(error);
-			console.log("\n⚠️  Test will run without authentication.");
-			console.log("   The agent will not produce output.\n");
+			if (refreshed) {
+				return refreshed.access;
+			}
 		}
 	}
-}
+
+	// Perform interactive OAuth login
+	const credentials = yield* performOAuthLogin.pipe(
+		Effect.catchAll((error) =>
+			Effect.gen(function* () {
+				yield* Console.error("❌ OAuth login failed with error:");
+				yield* Console.error(String(error));
+				yield* Console.log("\n⚠️  Test will run without authentication.");
+				yield* Console.log("   The agent will not produce output.\n");
+				return undefined;
+			}),
+		),
+	);
+
+	return credentials?.access;
+});
 
 // Step 5: Create agent script
-console.log("📦 Step 5: Creating agent script...");
-const agentScript = `
+const createAgentScript = (oauthApiKey: string | undefined) =>
+	Effect.gen(function* () {
+		yield* Console.log("📦 Step 5: Creating agent script...");
+
+		const agentScript = `
 import { Agent } from "@vcarl/pi-agent-core";
 import { getModel } from "@mariozechner/pi-ai";
 import fs from "fs";
@@ -258,38 +321,68 @@ Generated: \${new Date().toISOString()}
 }
 `;
 
-try {
-	fs.writeFileSync(path.join(testDir, "test-agent.js"), agentScript);
-	console.log("✅ Agent script created\n");
-} catch (error) {
-	console.error("❌ Script creation failed:", error);
-	process.exit(1);
-}
+		yield* Effect.sync(() => {
+			fs.writeFileSync(path.join(testDir, "test-agent.js"), agentScript);
+		});
+		yield* Console.log("✅ Agent script created\n");
+
+		return oauthApiKey;
+	});
 
 // Step 6: Run the agent
-console.log("🤖 Step 6: Running agent for self-improvement...\n");
-console.log("=" .repeat(60));
-try {
-	execSync("node test-agent.js", {
-		cwd: testDir,
-		stdio: "inherit",
-		env: {
-			...process.env,
-			// Pass OAuth credentials to agent script
-			ANTHROPIC_OAUTH_TOKEN: oauthApiKey || process.env.ANTHROPIC_OAUTH_TOKEN,
-			ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
-		},
-	});
-	console.log("=" .repeat(60));
-	console.log("\n✅ E2E Test Complete!\n");
-} catch (error) {
-	console.log("=" .repeat(60));
-	console.error("\n❌ Agent execution failed");
-	console.error("This might be expected if no API key is configured.\n");
-}
+const runAgent = (oauthApiKey: string | undefined) =>
+	Effect.gen(function* () {
+		yield* Console.log("🤖 Step 6: Running agent for self-improvement...\n");
+		yield* Console.log("=".repeat(60));
 
-// Step 7: Cleanup (optional)
-console.log("🧹 Cleanup:");
-console.log(`  Tarball: ${tarballPath}`);
-console.log(`  Test dir: ${testDir}`);
-console.log("\nRun 'rm -rf test-e2e-tmp *.tgz' to clean up.\n");
+		yield* Effect.try({
+			try: () =>
+				execSync("node test-agent.js", {
+					cwd: testDir,
+					stdio: "inherit",
+					env: {
+						...process.env,
+						// Pass OAuth credentials to agent script
+						ANTHROPIC_OAUTH_TOKEN: oauthApiKey || process.env.ANTHROPIC_OAUTH_TOKEN,
+						ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
+					},
+				}),
+			catch: () => {
+				console.log("=".repeat(60));
+				console.error("\n❌ Agent execution failed");
+				console.error("This might be expected if no API key is configured.\n");
+				return null;
+			},
+		});
+
+		yield* Console.log("=".repeat(60));
+		yield* Console.log("\n✅ E2E Test Complete!\n");
+	});
+
+// Step 7: Show cleanup info
+const showCleanupInfo = (tarballPath: string) =>
+	Effect.gen(function* () {
+		yield* Console.log("🧹 Cleanup:");
+		yield* Console.log(`  Tarball: ${tarballPath}`);
+		yield* Console.log(`  Test dir: ${testDir}`);
+		yield* Console.log("\nRun 'rm -rf test-e2e-tmp *.tgz' to clean up.\n");
+	});
+
+// Main program
+const program = Effect.gen(function* () {
+	yield* Console.log("🧪 E2E Test: Agent Self-Improvement\n");
+
+	const tarballPath = yield* buildPackage.pipe(Effect.flatMap(() => createTarball));
+	yield* setupTestEnvironment;
+	yield* installTarball(tarballPath);
+	const oauthApiKey = yield* setupOAuthAuthentication;
+	yield* createAgentScript(oauthApiKey);
+	yield* runAgent(oauthApiKey);
+	yield* showCleanupInfo(tarballPath);
+});
+
+// Run the program
+Effect.runPromise(program).catch((error) => {
+	console.error("❌ E2E test failed:", error);
+	process.exit(1);
+});
